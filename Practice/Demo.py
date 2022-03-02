@@ -1,22 +1,15 @@
 
-from flask import Flask, redirect, render_template, request, url_for,json,jsonify
-from flask_mysqldb import MySQL
-from numpy.core.numeric import outer
-from textblob import TextBlob
-import numpy as np
-import pandas as pd
-from textblob.sentiments import NaiveBayesAnalyzer
-from googletrans import Translator
-from typing import Final
 import nltk
-from nltk.text import TextCollection
+import pandas as pd
+from flask import Flask, redirect, render_template, request, url_for
+from flask_mysqldb import MySQL
+from googletrans import Translator
+from textblob import TextBlob
+
 nltk.download('vader_lexicon')
-from nltk.tokenize import word_tokenize, RegexpTokenizer
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from textblob.classifiers import NaiveBayesClassifier
 import enchant
-from werkzeug.exceptions import RequestEntityTooLarge
-from array import *
 import string
 
 
@@ -28,129 +21,6 @@ app.config['MYSQL_PASSWORD'] = '';
 app.config['MYSQL_DB'] = 'isent';
 
 mysql = MySQL(app)
-
-#this is to modify the SentimentIntensityAnalyzer
-new_vader ={
-    'strict': -4,
-    'absent': -5,
-    'high': 1,
-    'understands': 2,
-    'understand': 2,
-    'late': -4,
-    'on time': 2,
-    'ontime': 2,
-    'on-time': 2,
-    'approachable': 4,
-    'without': -2,   
-}
-output_list =[]
-#ALGORITHM 1
-# function to print sentiments 
-# of the sentence. 
-# Getting sentiment scores using the VADER
-def sentiment_scores(sentence):
-	# Create a SentimentIntensityAnalyzer object. 
-	sid_obj = SentimentIntensityAnalyzer() 
-	sid_obj.lexicon.update(new_vader)
-
-	# polarity_scores method of SentimentIntensityAnalyzer 
-	# oject gives a sentiment dictionary. 
-	# which contains pos, neg, neu, and compound scores. 
-	sentiment_dict = sid_obj.polarity_scores(sentence) 
-
-	print("word: ", sentence)
-	print("Overall sentiment dictionary is : ", sentiment_dict) 
-	print("sentence was rated as ", sentiment_dict['neg']*100, "% Negative") 
-	print("sentence was rated as ", sentiment_dict['neu']*100, "% Neutral") 
-	print("sentence was rated as ", sentiment_dict['pos']*100, "% Positive")
-	print("Sentence Overall Rated As", end = " ") 
-
-	#reset the output_list
-	output_list=[]
-	#get the positive,neutral and negative values
-	output_list.append(sentiment_dict['pos']*100)
-	output_list.append(sentiment_dict['neu']*100)
-	output_list.append(sentiment_dict['neg']*100)
-
-	#tweak the downpoints of the vader
-	#check if "no" exist in the comment
-	hasNo = False
-	for word in sentence.split():
-		if word == "no":
-			hasNo = True
-			break
-		
-	if(hasNo
-	or "haha" in sentence):
-		return NB_Classify(sentence)
-	# decide sentiment as positive, negative and neutral 
-	elif sentiment_dict['compound'] >= 0.05 :
-		output_list.append("positive") 
-		return output_list
-
-	elif sentiment_dict['compound'] <= - 0.05 : 
-		output_list.append("negative") 
-		return output_list
-
-	else :
-		return NB_Classify(sentence)
-
-def FinalSentiment(sentence): 
-  
-    # Create a SentimentIntensityAnalyzer object. 
-    sid_obj = SentimentIntensityAnalyzer() 
-    sid_obj.lexicon.update(new_vader) 
-    sentiment_dict = sid_obj.polarity_scores(sentence) 
-
-    # decide sentiment as positive, negative and neutral 
-    if sentiment_dict['compound'] >= 0.05 : 
-        return "positive"
-  
-    elif sentiment_dict['compound'] <= - 0.05 : 
-        return "negative"
-  
-    else :
-        return NB_Classify(sentence)
-
-#reading the dataset
-data = pd.read_csv('Comments.csv')
-print("number of data ", data.shape)
-training = data[['comment','label']]
-
-#clean the dataset, remove words that is in the stopwords
-#function for data cleaning
-# Stopwords
-stopwords = set(line.strip() for line in open('customized_stopwords.txt'))
-stopwords = stopwords.union(set(['mr','mrs','one','two','said']))
-
-def data_cleaning(raw_data):
-    raw_data = raw_data.translate(str.maketrans('', '', string.punctuation + string.digits))
-    words = raw_data.lower().split()
-    stops = set(stopwords)
-    useful_words = [w for w in words if not w in stops]
-    return(" ".join(useful_words))
-
-training['comment']=training['comment'].apply(data_cleaning)
-
-#convert comments and label dataFrame into list
-list_commentsAndLabel = training.values.tolist()
-
-classifier = NaiveBayesClassifier(list_commentsAndLabel)
-
-def NB_Classify(comment):
-	comment_blob = TextBlob(comment, classifier=classifier)
-
-	prob = classifier.prob_classify(comment)
-	print("")
-	print("positive",round(prob.prob("positive"),2))
-	print("negative", round(prob.prob("negative"),2))
-	print("neutral",round(prob.prob("neutral"),2))
-
-	output_list.append(round(prob.prob("positive"),2))
-	output_list.append(round(prob.prob("neutral"),2))
-	output_list.append(round(prob.prob("negative"),2))
-	output_list.append(comment_blob.classify())
-	return output_list
 
 @app.route("/login.html", methods=["POST","GET"])
 def login():
@@ -248,41 +118,6 @@ def evaluate():
 		# code for the translation and getting sentiment analysis
 		comment = request.form["txtcomment"]
 
-		cl = NaiveBayesClassifier(training)
-		translator = Translator()
-
-		# Lets test the accuracy of the classifier
-		# print ("training set accuracy : ", cl.accuracy(train))
-		# print ("test set accuracy     : ", cl.accuracy(test))
-		if (len(comment) == 0):
-			result = "neutral"
-
-		else:
-			translated = translator.translate(comment, dest="en")
-
-			# check if the word exist
-			count_string = (len(translated.text.strip().split(" ")))
-
-			if (count_string <= 1):
-				if (count_string == 0):
-					result = "neutral"
-				elif (count_string == 1):
-					d = enchant.Dict("en_US")
-					check_word = d.check(translated.text)
-
-					# counter number of letters (own logic (there is no sentimental word that has
-					# 1 or 2 letters only))
-					if (len(translated.text) <= 2):
-						result = "neutral"
-					# if the word exist then classify else neutral
-					elif (check_word):
-						result = cl.classify(translated.text)
-					else:
-						result = "neutral"
-
-
-			else:
-				result = cl.classify(translated.text)
 
 		try:
 			cur = mysql.connection.cursor()
@@ -296,7 +131,7 @@ def evaluate():
 			sql = "INSERT INTO evaluation (idteacher,idstudent,section1,section2,section3,section4,section5,comment,sentiment)\
 			 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);"
 			val = (
-			"18013672", "18013672", sec1_string, sec2_string, sec3_string, sec4_string, sec5_string, comment, result)
+			"18013672", "18013672", sec1_string, sec2_string, sec3_string, sec4_string, sec5_string, comment, getsentiment(comment))
 			cur.execute(sql, val)
 			mysql.connection.commit()
 			cur.close()
@@ -333,9 +168,6 @@ def evaluate():
 							   lensectionsleft = len(sectionsleft),
 							   lensectionsright = len(sectionsright),
 							   evalsecans = evalsecans)
-
-
-
 
 @app.route("/evaluation", methods = ["POST", "GET"])
 def evaluation():
@@ -386,13 +218,13 @@ def evaluation():
 		comment = request.form["txtcomment"]
 		comment = comment.replace("miss","")
 
-		result = sentiment_scores(comment)
-		pos_val = float(result[0])
-		neu_val = float(result[1])
-		neg_val = float(result[2])
-		sentiment = result[3]
-		
-		print(type(pos_val),type(neu_val),type(neg_val))
+
+		pos_val = getsentiment(comment).split(" ")[1]
+		neu_val = getsentiment(comment).split(" ")[2]
+		neg_val = getsentiment(comment).split(" ")[3]
+		sen_val = getsentiment(comment).split(" ")[0]
+
+
 		try:       
 			cur = mysql.connection.cursor()
 			#converting list into string
@@ -404,7 +236,7 @@ def evaluation():
 
 			sql = "INSERT INTO evaluation (idteacher,idstudent,section1,section2,section3,section4,section5,pos,neu,neg,comment,sentiment)\
 			 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);"
-			val = ("18013672","18013672",sec1_string,sec2_string,sec3_string,sec4_string,sec5_string,pos_val,neu_val,neg_val,comment,sentiment)
+			val = ("18013672","18013672",sec1_string,sec2_string,sec3_string,sec4_string,sec5_string,pos_val,neu_val,neg_val,comment,sen_val)
 			cur.execute(sql,val)
 			mysql.connection.commit()
 			cur.close()
@@ -457,12 +289,6 @@ def instrument():
 					ON questionaire.section = section.section """)
 	sectionsright = cur.fetchall()
 
-#	cur.execute("SELECT questionaire.section, questionaire.question, section.name, section.description, section.percentage "
-#				"FROM questionaire "
-#				"RIGHT JOIN section "
-#				"ON questionaire.section = section.section")
-#			evalsection1
-
 	cur.close()
 
 	if request.method == 'POST':
@@ -491,41 +317,6 @@ def instrument():
 		# code for the translation and getting sentiment analysis
 		comment = request.form["txtcomment"]
 
-		cl = NaiveBayesClassifier(train)
-		translator = Translator()
-
-		# Lets test the accuracy of the classifier
-		# print ("training set accuracy : ", cl.accuracy(train))
-		# print ("test set accuracy     : ", cl.accuracy(test))
-		if (len(comment) == 0):
-			result = "neutral"
-
-		else:
-			translated = translator.translate(comment, dest="en")
-
-			# check if the word exist
-			count_string = (len(translated.text.strip().split(" ")))
-
-			if (count_string <= 1):
-				if (count_string == 0):
-					result = "neutral"
-				elif (count_string == 1):
-					d = enchant.Dict("en_US")
-					check_word = d.check(translated.text)
-
-					# counter number of letters (own logic (there is no sentimental word that has
-					# 1 or 2 letters only))
-					if (len(translated.text) <= 2):
-						result = "neutral"
-					# if the word exist then classify else neutral
-					elif (check_word):
-						result = cl.classify(translated.text)
-					else:
-						result = "neutral"
-
-
-			else:
-				result = cl.classify(translated.text)
 
 		try:
 			cur = mysql.connection.cursor()
@@ -539,7 +330,7 @@ def instrument():
 			sql = "INSERT INTO evaluation (idteacher,idstudent,section1,section2,section3,section4,section5,comment,sentiment)\
 			 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s);"
 			val = (
-			"18013672", "18013672", sec1_string, sec2_string, sec3_string, sec4_string, sec5_string, comment, result)
+			"18013672", "18013672", sec1_string, sec2_string, sec3_string, sec4_string, sec5_string, comment, getsentiment(comment))
 			cur.execute(sql, val)
 			mysql.connection.commit()
 			cur.close()
@@ -562,9 +353,16 @@ def instrument():
 							   lensectionsright = len(sectionsright))
 
 
-@app.route("/<sec1_rating><sec2_rating><sec3_rating><sec4_rating><sec5_rating><result>")
-def scratch(sec1_rating, sec2_rating,sec3_rating, sec4_rating,sec5_rating, result):
-	return f"<h1>{sec1_rating}{sec2_rating}{sec3_rating}{sec4_rating}{sec5_rating}{result}</h1>"
+with app.app_context():
+	def getsentiment(comment):
+		import requests
+		dictToSend = {'comment': comment}
+		res = requests.post('http://127.0.0.6:8000/getSentiment', json=dictToSend)
+		print('response from server:', res.text)
+		dictFromServer = res.json()
+		return str(dictFromServer)
+
 
 if __name__ == "__main__":
-	app.run(debug =True)
+	app.run(host='127.0.0.1', port=8080, debug=True)
+	#app.run(debug =True)
